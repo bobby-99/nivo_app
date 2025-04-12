@@ -1,133 +1,154 @@
+// Updated tasks_screen.dart
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:provider/provider.dart';
+import 'package:nivo_app/models/task.dart';
 import 'package:nivo_app/providers/task_provider.dart';
 import 'package:nivo_app/screens/tasks/create_task_modal.dart';
-import 'package:nivo_app/widgets/app_bar.dart';
 import 'package:nivo_app/widgets/task_tile.dart';
+import 'package:nivo_app/widgets/app_bar.dart';
+import 'package:nivo_app/utils/constants.dart';
 
-class TasksScreen extends ConsumerStatefulWidget {
-  const TasksScreen({super.key});
+class TasksScreen extends StatefulWidget {
+  const TasksScreen({Key? key}) : super(key: key);
 
   @override
-  ConsumerState<TasksScreen> createState() => _TasksScreenState();
+  State<TasksScreen> createState() => _TasksScreenState();
 }
 
-class _TasksScreenState extends ConsumerState<TasksScreen>
-    with SingleTickerProviderStateMixin {
+class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStateMixin {
+  String _selectedCategory = 'All';
   late TabController _tabController;
-  String _selectedCategory = 'All Tasks';
-
+  
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 1, vsync: this);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _updateTabController();
+    // Tab controller for category tabs
+    _tabController = TabController(
+      length: AppConstants.defaultCategories.length, 
+      vsync: this,
+    );
+    _tabController.addListener(() {
+      setState(() {
+        _selectedCategory = AppConstants.defaultCategories[_tabController.index];
+      });
     });
   }
-
-  void _updateTabController() {
-    final categories = ref.read(taskProvider.notifier).categories;
-    _tabController = TabController(
-      length: categories.length,
-      vsync: this,
-      initialIndex: categories.indexOf(_selectedCategory),
-    );
-    _tabController.addListener(_handleTabSelection);
-  }
-
-  void _handleTabSelection() {
-    if (_tabController.indexIsChanging) {
-      final categories = ref.read(taskProvider.notifier).categories;
-      setState(() {
-        _selectedCategory = categories[_tabController.index];
-      });
-    }
-  }
-
+  
   @override
   void dispose() {
     _tabController.dispose();
     super.dispose();
   }
 
+  void _showCreateTaskModal() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => const CreateTaskModal(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final tasks = ref.watch(taskProvider);
-    final categories = ref.read(taskProvider.notifier).categories;
-    final filteredTasks = ref.read(taskProvider.notifier).getTasksByCategory(_selectedCategory);
-
-    // Update tab controller when categories change
-    if (_tabController.length != categories.length) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _updateTabController();
-      });
-    }
-
+    final theme = Theme.of(context);
+    final taskProvider = Provider.of<TaskProvider>(context);
+    
     return Scaffold(
       appBar: CustomAppBar(
         title: 'Tasks',
-        bottom: TabBar( // Remove PreferredSize wrapper
-          controller: _tabController,
-          isScrollable: true,
-          tabs: [...],
-            ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () {
+              Navigator.pushNamed(context, '/settings');
+            },
           ),
         ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(48),
-          child: Align(
-            alignment: Alignment.centerLeft,
+      ),
+      body: Column(
+        children: [
+          // Category tabs
+          Container(
+            color: theme.colorScheme.surface,
             child: TabBar(
               controller: _tabController,
               isScrollable: true,
-              tabs: categories.map((category) => Tab(text: category)).toList(),
-              labelColor: Theme.of(context).colorScheme.primary,
-              unselectedLabelColor: Theme.of(context).textTheme.bodyLarge?.color,
-              indicatorSize: TabBarIndicatorSize.label,
+              labelColor: theme.colorScheme.primary,
+              unselectedLabelColor: theme.colorScheme.onSurface.withOpacity(0.7),
+              indicatorColor: theme.colorScheme.primary,
+              tabs: AppConstants.defaultCategories.map((category) {
+                return Tab(text: category);
+              }).toList(),
             ),
           ),
-        ),
-      ),
-      body: TabBarView(
-        controller: _tabController,
-        children: categories.map((category) {
-          final categoryTasks = ref.read(taskProvider.notifier).getTasksByCategory(category);
-          return ListView.builder(
-            padding: const EdgeInsets.only(top: 8),
-            itemCount: categoryTasks.length,
-            itemBuilder: (context, index) {
-              final task = categoryTasks[index];
-              return TaskTile(
-                task: task,
-                onToggleComplete: (isCompleted) {
-                  ref.read(taskProvider.notifier).toggleComplete(task.id);
-                },
-                onDelete: () {
-                  ref.read(taskProvider.notifier).deleteTask(task.id);
-                },
-              );
-            },
-          );
-        }).toList(),
+          
+          // Task list
+          Expanded(
+            child: Consumer<TaskProvider>(
+              builder: (context, taskProvider, _) {
+                // Filter tasks by selected category
+                final List<Task> filteredTasks = _selectedCategory == 'All'
+                    ? taskProvider.tasks
+                    : taskProvider.getTasksByCategory(_selectedCategory);
+                
+                if (filteredTasks.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.task_alt,
+                          size: 64,
+                          color: theme.colorScheme.onBackground.withOpacity(0.3),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'No tasks yet',
+                          style: TextStyle(
+                            fontSize: 18,
+                            color: theme.colorScheme.onBackground.withOpacity(0.7),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Tap the + button to add a new task',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: theme.colorScheme.onBackground.withOpacity(0.5),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                
+                return ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: filteredTasks.length,
+                  itemBuilder: (context, index) {
+                    final task = filteredTasks[index];
+                    return TaskTile(
+                      task: task,
+                      onToggleCompletion: () {
+                        taskProvider.toggleTaskCompletion(task.id);
+                      },
+                      onDelete: () {
+                        taskProvider.deleteTask(task.id);
+                      },
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton(
-        shape: const CircleBorder(),
-        child: const Icon(Icons.add),
-        onPressed: () {
-          showModalBottomSheet(
-            context: context,
-            isScrollControlled: true,
-            builder: (context) {
-              return const CreateTaskModal();
-            },
-            shape: const RoundedRectangleBorder(
-              borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-            ),
-          );
-        },
+        onPressed: _showCreateTaskModal,
+        backgroundColor: theme.colorScheme.primary,
+        child: const Icon(Icons.add, color: Colors.white),
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );
   }
 }

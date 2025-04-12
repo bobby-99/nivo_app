@@ -1,61 +1,99 @@
-import 'package:hive/hive.dart';
+// Updated task.dart
+import 'package:flutter/material.dart';
 
-part 'task.g.dart'; // For Hive code generation
-
-@HiveType(typeId: 0)
 class Task {
-  @HiveField(0)
   final String id;
-  @HiveField(1)
   final String title;
-  @HiveField(2)
   final String? description;
-  @HiveField(3)
-  final bool isCompleted;
-  @HiveField(4)
   final DateTime createdAt;
-  @HiveField(5)
+  final DateTime? dueDate;
+  final DateTime? reminderDateTime;
   final String category;
-  @HiveField(6)
-  final bool isHighPriority;
-  @HiveField(7)
-  final DateTime? reminderTime;
-  @HiveField(8)
-  final String? repeatInterval;
+  final int priority; // 0: Low, 1: Medium, 2: High
+  final Color colorTag;
+  final bool isCompleted;
+  final bool isRepeating;
+  final String? repeatFrequency; // daily, weekly, monthly
 
   Task({
     required this.id,
     required this.title,
     this.description,
-    this.isCompleted = false,
     required this.createdAt,
+    this.dueDate,
+    this.reminderDateTime,
     required this.category,
-    this.isHighPriority = false,
-    this.reminderTime,
-    this.repeatInterval,
+    required this.priority,
+    required this.colorTag,
+    this.isCompleted = false,
+    this.isRepeating = false,
+    this.repeatFrequency,
   });
 
   Task copyWith({
     String? id,
     String? title,
     String? description,
-    bool? isCompleted,
     DateTime? createdAt,
+    DateTime? dueDate,
+    DateTime? reminderDateTime,
     String? category,
-    bool? isHighPriority,
-    DateTime? reminderTime,
-    String? repeatInterval,
+    int? priority,
+    Color? colorTag,
+    bool? isCompleted,
+    bool? isRepeating,
+    String? repeatFrequency,
   }) {
     return Task(
       id: id ?? this.id,
       title: title ?? this.title,
       description: description ?? this.description,
-      isCompleted: isCompleted ?? this.isCompleted,
       createdAt: createdAt ?? this.createdAt,
+// Continued from task.dart
+      dueDate: dueDate ?? this.dueDate,
+      reminderDateTime: reminderDateTime ?? this.reminderDateTime,
       category: category ?? this.category,
-      isHighPriority: isHighPriority ?? this.isHighPriority,
-      reminderTime: reminderTime ?? this.reminderTime,
-      repeatInterval: repeatInterval ?? this.repeatInterval,
+      priority: priority ?? this.priority,
+      colorTag: colorTag ?? this.colorTag,
+      isCompleted: isCompleted ?? this.isCompleted,
+      isRepeating: isRepeating ?? this.isRepeating,
+      repeatFrequency: repeatFrequency ?? this.repeatFrequency,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'title': title,
+      'description': description,
+      'createdAt': createdAt.toIso8601String(),
+      'dueDate': dueDate?.toIso8601String(),
+      'reminderDateTime': reminderDateTime?.toIso8601String(),
+      'category': category,
+      'priority': priority,
+      'colorTag': colorTag.value,
+      'isCompleted': isCompleted,
+      'isRepeating': isRepeating,
+      'repeatFrequency': repeatFrequency,
+    };
+  }
+
+  factory Task.fromJson(Map<String, dynamic> json) {
+    return Task(
+      id: json['id'],
+      title: json['title'],
+      description: json['description'],
+      createdAt: DateTime.parse(json['createdAt']),
+      dueDate: json['dueDate'] != null ? DateTime.parse(json['dueDate']) : null,
+      reminderDateTime: json['reminderDateTime'] != null 
+          ? DateTime.parse(json['reminderDateTime']) 
+          : null,
+      category: json['category'],
+      priority: json['priority'],
+      colorTag: Color(json['colorTag']),
+      isCompleted: json['isCompleted'],
+      isRepeating: json['isRepeating'],
+      repeatFrequency: json['repeatFrequency'],
     );
   }
 }

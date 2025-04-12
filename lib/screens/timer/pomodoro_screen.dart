@@ -1,291 +1,133 @@
+// Updated pomodoro_screen.dart
+import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:nivo_app/providers/pomodoro_provider.dart';
-import 'package:nivo_app/widgets/app_bar.dart';
-import 'package:nivo_app/widgets/pomodoro_controls.dart';
 import 'package:nivo_app/models/pomodoro_session.dart';
+import 'package:nivo_app/theme/palette.dart';
 
-class PomodoroScreen extends ConsumerStatefulWidget {
-  const PomodoroScreen({super.key});
+class PomodoroScreen extends StatefulWidget {
+  const PomodoroScreen({Key? key}) : super(key: key);
 
   @override
-  ConsumerState<PomodoroScreen> createState() => _PomodoroScreenState();
+  State<PomodoroScreen> createState() => _PomodoroScreenState();
 }
 
-class _PomodoroScreenState extends ConsumerState<PomodoroScreen> 
-    with SingleTickerProviderStateMixin {
-  late AnimationController _pulseController;
-  late Animation<double> _pulseAnimation;
-  late AnimationController _progressController;
-  late Animation<double> _progressAnimation;
+class _PomodoroScreenState extends State<PomodoroScreen> {
+  static const int workDuration = 25 * 60; // 25 minutes in seconds
+  static const int breakDuration = 5 * 60; // 5 minutes in seconds
+  
+  int _currentSeconds = workDuration;
+  bool _isRunning = false;
+  bool _isWorkSession = true;
+  Timer? _timer;
+  List<PomodoroSession> _sessions = [];
+  
+  TextEditingController _sessionNoteController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    
-    // Pulse animation for completed sessions
-    _pulseController = AnimationController(
-      duration: const Duration(milliseconds: 1000),
-      vsync: this,
-    )..repeat(reverse: true);
-    
-    _pulseAnimation = Tween<double>(begin: 0.95, end: 1.05).animate(
-      CurvedAnimation(
-        parent: _pulseController,
-        curve: Curves.easeInOut,
-      ),
-    );
-
-    // Progress animation
-    _progressController = AnimationController(
-      duration: const Duration(seconds: 1),
-      vsync: this,
-    );
+    _resetTimer();
   }
 
   @override
   void dispose() {
-    _pulseController.dispose();
-    _progressController.dispose();
+    _timer?.cancel();
+    _sessionNoteController.dispose();
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final state = ref.watch(pomodoroProvider);
-    final notifier = ref.read(pomodoroProvider.notifier);
-
-    // Animate progress when time changes
-    _progressController.reset();
-    _progressController.forward();
-
-    return Scaffold(
-      appBar: const CustomAppBar(title: 'Focus Timer'),
-      body: Column(
-        children: [
-          const SizedBox(height: 32),
-          _buildTimerDisplay(context, state),
-          const SizedBox(height: 32),
-          const PomodoroControls(),
-          const SizedBox(height: 32),
-          _buildStatsSection(context, notifier),
-          const SizedBox(height: 16),
-          _buildSessionHistory(context, state),
-        ],
-      ),
-    );
+  void _resetTimer() {
+    setState(() {
+      _currentSeconds = _isWorkSession ? workDuration : breakDuration;
+      _isRunning = false;
+    });
+    _timer?.cancel();
   }
 
-  Widget _buildTimerDisplay(BuildContext context, PomodoroState state) {
-    final minutes = state.remainingTime.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final seconds = (state.remainingTime.inSeconds.remainder(60)).toString().padLeft(2, '0');
-    final isCompleted = state.remainingTime.inSeconds == 0;
-    final sessionType = state.currentSessionType;
-
-    return ScaleTransition(
-      scale: isCompleted ? _pulseAnimation : AlwaysStoppedAnimation(1.0),
-      child: Column(
-        children: [
-          Text(
-            sessionType == SessionType.work 
-                ? 'Focus Time' 
-                : sessionType == SessionType.shortBreak 
-                    ? 'Short Break' 
-                    : 'Long Break',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-              color: isCompleted 
-                  ? Theme.of(context).colorScheme.primary
-                  : null,
-            ),
-          ),
-          const SizedBox(height: 16),
-          Stack(
-            alignment: Alignment.center,
-            children: [
-              SizedBox(
-                width: 200,
-                height: 200,
-                child: AnimatedBuilder(
-                  animation: _progressController,
-                  builder: (context, child) {
-                    return CircularProgressIndicator(
-                      value: 1 - (state.remainingTime.inSeconds / 
-                          (sessionType == SessionType.work 
-                              ? 25 * 60 
-                              : sessionType == SessionType.shortBreak 
-                                  ? 5 * 60 
-                                  : 15 * 60)),
-                      strokeWidth: 8,
-                      backgroundColor: Theme.of(context).colorScheme.surface.withOpacity(0.2),
-                      color: sessionType == SessionType.work
-                          ? Theme.of(context).colorScheme.primary
-                          : Colors.green,
-                    );
-                  },
-                ),
-              ),
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 200),
-                transitionBuilder: (Widget child, Animation<double> animation) {
-                  return ScaleTransition(
-                    scale: animation,
-                    child: child,
-                  );
-                },
-                child: Text(
-                  '$minutes:$seconds',
-                  key: ValueKey('$minutes$seconds'),
-                  style: Theme.of(context).textTheme.displayLarge?.copyWith(
-                    fontSize: 48,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
+  void _toggleTimer() {
+    if (_isRunning) {
+      _timer?.cancel();
+    } else {
+      _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        if (_currentSeconds > 0) {
+          setState(() {
+            _currentSeconds--;
+          });
+        } else {
+          _timer?.cancel();
+          _onSessionComplete();
+        }
+      });
+    }
+    
+    setState(() {
+      _isRunning = !_isRunning;
+    });
   }
 
-  Widget _buildStatsSection(BuildContext context, PomodoroNotifier notifier) {
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 300),
-      child: Card(
-        key: ValueKey('stats-${notifier.getTodayDuration().inMinutes}'),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Today',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _formatDuration(notifier.getTodayDuration()),
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
-              const Divider(),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'This Week',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      Text(
-                        _formatDuration(notifier.getThisWeekDuration()),
-                        style: Theme.of(context).textTheme.bodyLarge,
-                      ),
-                    ],
-                  ),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'This Month',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      Text(
-                        _formatDuration(notifier.getThisMonthDuration()),
-                        style: Theme.of(context).textTheme.bodyLarge,
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+  void _onSessionComplete() {
+    // Log the completed session if it was a work session
+    if (_isWorkSession) {
+      _showSessionCompletionDialog();
+    } else {
+      // Automatically transition to work session
+      setState(() {
+        _isWorkSession = true;
+        _currentSeconds = workDuration;
+        _isRunning = false;
+      });
+    }
   }
 
-  Widget _buildSessionHistory(BuildContext context, PomodoroState state) {
-    final recentSessions = state.sessions.take(5).toList();
-
-    return Expanded(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'Recent Sessions',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 8),
-            Expanded(
-              child: ListView.builder(
-                itemCount: recentSessions.length,
-                itemBuilder: (context, index) {
-                  final session = recentSessions[index];
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    child: ListTile(
-                      title: Text(
-                        session.type == SessionType.work
-                            ? 'Work Session'
-                            : session.type == SessionType.shortBreak
-                                ? 'Short Break'
-                                : 'Long Break',
-                      ),
-                      subtitle: Text(
-                        '${_formatDuration(session.duration)} • ${session.startTime.toString().split(' ')[0]}',
-                      ),
-                      trailing: session.description != null
-                          ? const Icon(Icons.note, size: 16)
-                          : null,
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showSessionCompleteDialog(BuildContext context, WidgetRef ref) {
-    final state = ref.read(pomodoroProvider);
-    final notifier = ref.read(pomodoroProvider.notifier);
-    final lastSession = state.sessions.last;
-
+  void _showSessionCompletionDialog() {
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (context) {
-        final controller = TextEditingController();
         return AlertDialog(
-          title: const Text('Session Complete'),
-          content: TextField(
-            controller: controller,
-            decoration: const InputDecoration(
-              labelText: 'What did you work on?',
-              hintText: 'Brief description (optional)',
-            ),
-            maxLines: 2,
+          title: const Text('Work Session Complete!'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('What did you accomplish in this session?'),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _sessionNoteController,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  hintText: 'Enter a brief description...',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
           ),
           actions: [
             TextButton(
               onPressed: () {
+                // Save the session
+                final now = DateTime.now();
+                _sessions.add(
+                  PomodoroSession(
+                    id: now.millisecondsSinceEpoch.toString(),
+                    startTime: now.subtract(const Duration(minutes: 25)),
+                    endTime: now,
+                    notes: _sessionNoteController.text,
+                  ),
+                );
+                
+                // Reset controller
+                _sessionNoteController.clear();
+                
+                // Start break session
+                setState(() {
+                  _isWorkSession = false;
+                  _currentSeconds = breakDuration;
+                  _isRunning = false;
+                });
+                
                 Navigator.pop(context);
               },
-              child: const Text('Skip'),
-            ),
-            TextButton(
-              onPressed: () {
-                if (controller.text.isNotEmpty) {
-                  notifier.addSessionDescription(lastSession.id, controller.text);
-                }
-                Navigator.pop(context);
-              },
-              child: const Text('Save'),
+              child: const Text('Save & Start Break'),
             ),
           ],
         );
@@ -293,9 +135,173 @@ class _PomodoroScreenState extends ConsumerState<PomodoroScreen>
     );
   }
 
-  String _formatDuration(Duration duration) {
-    final hours = duration.inHours;
-    final minutes = duration.inMinutes.remainder(60);
-    return '${hours}h ${minutes}m';
+  String _formatTime(int seconds) {
+    final minutes = seconds ~/ 60;
+    final remainingSeconds = seconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${remainingSeconds.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isLightMode = theme.brightness == Brightness.light;
+    final primaryColor = theme.colorScheme.primary;
+    
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Pomodoro Timer'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () {
+              Navigator.pushNamed(context, '/settings');
+            },
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          // Session type indicator
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            color: _isWorkSession ? primaryColor : Colors.green,
+            child: Text(
+              _isWorkSession ? 'WORK SESSION' : 'BREAK TIME',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
+          ),
+          
+          // Timer display
+          Expanded(
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    _formatTime(_currentSeconds),
+                    style: TextStyle(
+                      fontSize: 80,
+                      fontWeight: FontWeight.bold,
+                      color: isLightMode 
+                          ? Colors.black 
+                          : Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 40),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      // Reset button
+                      ElevatedButton.icon(
+                        onPressed: _resetTimer,
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Reset'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: isLightMode 
+                              ? Colors.grey[300] 
+                              : Palette.darkSurface,
+                          foregroundColor: isLightMode 
+                              ? Colors.black 
+                              : Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20, 
+                            vertical: 12,
+                          ),
+                        ),
+                      ),
+                      
+                      const SizedBox(width: 20),
+                      
+                      // Start/Pause button
+                      ElevatedButton.icon(
+                        onPressed: _toggleTimer,
+                        icon: Icon(_isRunning ? Icons.pause : Icons.play_arrow),
+                        label: Text(_isRunning ? 'Pause' : 'Start'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: primaryColor,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20, 
+                            vertical: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          
+          // Sessions history
+          Container(
+            height: 200,
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            color: isLightMode ? Colors.grey[100] : Palette.darkSurface,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Today\'s Sessions',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                    color: isLightMode ? Colors.black : Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: _sessions.isEmpty
+                      ? Center(
+                          child: Text(
+                            'Complete a session to see it here',
+                            style: TextStyle(
+                              color: isLightMode 
+                                  ? Colors.black54 
+                                  : Colors.white70,
+                            ),
+                          ),
+                        )
+                      : ListView.builder(
+                          itemCount: _sessions.length,
+                          itemBuilder: (context, index) {
+                            final session = _sessions[_sessions.length - 1 - index];
+                            return ListTile(
+                              title: Text(
+                                '${session.startTime.hour}:${session.startTime.minute.toString().padLeft(2, '0')} - ${session.endTime.hour}:${session.endTime.minute.toString().padLeft(2, '0')}',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: isLightMode 
+                                      ? Colors.black 
+                                      : Colors.white,
+                                ),
+                              ),
+                              subtitle: Text(
+                                session.notes.isEmpty 
+                                    ? 'No notes' 
+                                    : session.notes,
+                                style: TextStyle(
+                                  color: isLightMode 
+                                      ? Colors.black54 
+                                      : Colors.white70,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

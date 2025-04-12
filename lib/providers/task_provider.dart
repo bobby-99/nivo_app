@@ -1,61 +1,112 @@
+// Updated task_provider.dart
 import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:hive/hive.dart';
+import 'package:flutter/material.dart';
 import 'package:nivo_app/models/task.dart';
+import 'package:nivo_app/services/notification_service.dart';
+import 'package:nivo_app/services/storage_service.dart';
 
-final taskProvider = StateNotifierProvider<TaskNotifier, List<Task>>((ref) {
-  return TaskNotifier();
-});
+class TaskProvider with ChangeNotifier {
+  List<Task> _tasks = [];
+  final StorageService _storageService = StorageService();
+  final NotificationService _notificationService = NotificationService();
 
-class TaskNotifier extends StateNotifier<List<Task>> {
-  TaskNotifier() : super([]) {
-    _init();
-  }
-
-  Future<void> _init() async {
-    final box = await Hive.openBox<Task>('tasks');
-    state = box.values.toList();
-  }
-
-  Future<void> _saveToHive(List<Task> tasks) async {
-    final box = await Hive.openBox<Task>('tasks');
-    await box.clear();
-    await box.addAll(tasks);
-  }
-
-  void addTask(Task task) {
-    state = [...state, task];
-    _saveToHive(state);
-  }
-
-  void updateTask(String id, Task updatedTask) {
-    state = [
-      for (final task in state)
-        if (task.id == id) updatedTask else task
-    ];
-    _saveToHive(state);
-  }
-
-  void deleteTask(String id) {
-    state = state.where((task) => task.id != id).toList();
-    _saveToHive(state);
-  }
-
-  void toggleComplete(String id) {
-    state = [
-      for (final task in state)
-        if (task.id == id) task.copyWith(isCompleted: !task.isCompleted) else task
-    ];
-    _saveToHive(state);
-  }
-
+  List<Task> get tasks => _tasks;
+  
   List<Task> getTasksByCategory(String category) {
-    if (category == 'All Tasks') return state;
-    return state.where((task) => task.category == category).toList();
+    return _tasks.where((task) => task.category == category).toList();
   }
 
-  List<String> get categories {
-    final allCategories = state.map((task) => task.category).toSet().toList();
-    return ['All Tasks', ...allCategories];
+  Future<void> loadTasks() async {
+    try {
+      _tasks = await _storageService.getTasks();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error loading tasks: $e');
+    }
+  }
+
+  Future<void> addTask(Task task) async {
+    try {
+      await _storageService.saveTask(task);
+      _tasks.add(task);
+      
+      // Schedule notification if reminder is set
+      if (task.reminderDateTime != null) {
+        await _notificationService.scheduleTaskReminder(
+          task.id,
+          task.title,
+          task.description ?? '',
+          task.reminderDateTime!,
+        );
+      }
+      
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error adding task: $e');
+    }
+  }
+
+  Future<void> updateTask(Task task) async {
+    try {
+      await _storageService.updateTask(task);
+      
+      final index = _tasks.indexWhere((t) => t.id == task.id);
+      if (index != -1) {
+        _tasks[index] = task;
+        
+        // Update notification if reminder changed
+        if (task.reminderDateTime != null) {
+          await _notificationService.cancelNotification(task.id);
+          await _notificationService.scheduleTaskReminder(
+            task.id,
+            task.title,
+            task.description ?? '',
+            task.reminderDateTime!,
+          );
+        } else {
+          await _notificationService.cancelNotification(task.id);
+        }
+        
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('Error updating task: $e');
+    }
+  }
+
+  Future<void> deleteTask(String taskId) async {
+    try {
+      await _storageService.deleteTask(taskId);
+      
+      _tasks.removeWhere((task) => task.id == taskId);
+      await _notificationService.cancelNotification(taskId);
+      
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error deleting task: $e');
+    }
+  }
+
+  Future<void> toggleTaskCompletion(String taskId) async {
+    try {
+      final index = _tasks.indexWhere((t) => t.id == taskId);
+      if (index != -1) {
+        final task = _tasks[index];
+        final updatedTask = task.copyWith(isCompleted: !task.isCompleted);
+        
+        await _storageService.updateTask(updatedTask);
+        _tasks[index] = updatedTask;
+        
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('Error toggling task completion: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    _notificationService.dispose();
+    super.dispose();
   }
 }

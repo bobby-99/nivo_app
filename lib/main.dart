@@ -1,94 +1,100 @@
+// Updated main.dart
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:hive_flutter/hive_flutter.dart';
-import 'package:nivo_app/models/habit.dart';
-import 'package:nivo_app/models/pomodoro_session.dart';
-import 'package:nivo_app/models/task.dart';
-import 'package:nivo_app/providers/navigation_provider.dart';
+import 'package:provider/provider.dart';
+import 'package:nivo_app/providers/task_provider.dart';
+import 'package:nivo_app/providers/habit_provider.dart';
 import 'package:nivo_app/providers/theme_provider.dart';
-import 'package:nivo_app/screens/habits/habits_screen.dart';
-import 'package:nivo_app/screens/settings/settings_screen.dart';
 import 'package:nivo_app/screens/tasks/tasks_screen.dart';
+import 'package:nivo_app/screens/habits/habits_screen.dart';
 import 'package:nivo_app/screens/timer/pomodoro_screen.dart';
-import 'package:nivo_app/theme/app_theme.dart';
-import 'package:nivo_app/widgets/app_bar.dart';
-import 'package:nivo_app/widgets/custom_bottom_nav.dart';
+import 'package:nivo_app/screens/timer/flip_clock_screen.dart';
+import 'package:nivo_app/screens/settings/settings_screen.dart';
+import 'package:nivo_app/services/notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Hive.initFlutter();
-  Hive.registerAdapter(TaskAdapter());
-  Hive.registerAdapter(HabitAdapter());
-  Hive.registerAdapter(HabitFrequencyAdapter());
-  Hive.registerAdapter(PomodoroSessionAdapter());
-  Hive.registerAdapter(SessionTypeAdapter());
-  runApp(const ProviderScope(child: NivoApp()));
+  
+  // Initialize notification service
+  final notificationService = NotificationService();
+  await notificationService.initialize();
+  
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => ThemeProvider()),
+        ChangeNotifierProvider(create: (_) => TaskProvider()),
+        ChangeNotifierProvider(create: (_) => HabitProvider()),
+      ],
+      child: const NivoApp(),
+    ),
+  );
 }
 
-class NivoApp extends ConsumerWidget {
-  const NivoApp({super.key});
+class NivoApp extends StatefulWidget {
+  const NivoApp({Key? key}) : super(key: key);
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = ref.watch(appThemeProvider);
-    
-    return AnimatedTheme(
-      data: theme,
-      duration: const Duration(milliseconds: 300),
-      child: MaterialApp(
-        title: 'Nivō',
-        debugShowCheckedModeBanner: false,
-        theme: theme,
-        home: const MainWrapper(),
-      ),
+  State<NivoApp> createState() => _NivoAppState();
+}
+
+class _NivoAppState extends State<NivoApp> {
+  @override
+  void initState() {
+    super.initState();
+    // Load data when app starts
+    Future.delayed(Duration.zero, () {
+      Provider.of<TaskProvider>(context, listen: false).loadTasks();
+      Provider.of<HabitProvider>(context, listen: false).loadHabits();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<ThemeProvider>(
+      builder: (context, themeProvider, _) {
+        return MaterialApp(
+          title: 'Nivo',
+          debugShowCheckedModeBanner: false,
+          theme: themeProvider.currentTheme,
+          home: const HomeScreen(),
+          routes: {
+            '/settings': (context) => const SettingsScreen(),
+            '/flip_clock': (context) => const FlipClockScreen(),
+          },
+        );
+      },
     );
   }
 }
 
-class MainWrapper extends ConsumerWidget {
-  const MainWrapper({super.key});
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({Key? key}) : super(key: key);
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final currentIndex = ref.watch(navigationProvider);
-    final pageTitles = ['Tasks', 'Habits', 'Timer'];
+  State<HomeScreen> createState() => _HomeScreenState();
+}
 
+class _HomeScreenState extends State<HomeScreen> {
+  int _currentIndex = 1; // Default to Tasks screen (center)
+  
+  final List<Widget> _screens = [
+    const HabitsScreen(),
+    const TasksScreen(),
+    const PomodoroScreen(),
+  ];
+  
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
-      appBar: CustomAppBar(
-        title: pageTitles[currentIndex],
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: () {
-              Navigator.push(
-                context,
-                PageRouteBuilder(
-                  pageBuilder: (context, animation, secondaryAnimation) => 
-                      const SettingsScreen(),
-                  transitionsBuilder: (context, animation, secondaryAnimation, child) {
-                    return FadeTransition(
-                      opacity: animation,
-                      child: child,
-                    );
-                  },
-                ),
-              );
-            },
-          ),
-        ],
+      body: _screens[_currentIndex],
+      bottomNavigationBar: CustomBottomNav(
+        currentIndex: _currentIndex,
+        onTap: (index) {
+          setState(() {
+            _currentIndex = index;
+          });
+        },
       ),
-      body: FadeTransitionSwitcher(
-        child: IndexedStack(
-          key: ValueKey<int>(currentIndex), // Important for animations
-          index: currentIndex,
-          children: const [
-            TasksScreen(),
-            HabitsScreen(),
-            PomodoroScreen(),
-          ],
-        ),
-      ),
-      bottomNavigationBar: const CustomBottomNav(),
     );
   }
 }
